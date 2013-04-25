@@ -45,6 +45,11 @@ struct signal_arg {
 	struct event *ev_sigchld;
 };
 
+struct signal_accept {
+	struct event_base *ev_base;
+	char *chroot;
+};
+
 static void sigchld_func(evutil_socket_t fd, short what, void *arg) {
 	struct signal_arg *a = (struct signal_arg*)arg;
 	struct event *ev_sigchld = a->ev_sigchld;
@@ -106,7 +111,7 @@ static void server_func(evutil_socket_t fd, short what, void *arg) {
 	}
 }
 
-static void write_ns_fd(int server) {
+static void write_ns_fd(int server, char *chroot) {
 	int fds[num_ns];
 
 	for (int i = 0; i < num_ns; ++i) {
@@ -115,12 +120,15 @@ static void write_ns_fd(int server) {
 		fds[i] = w(open(path, O_RDONLY|O_CLOEXEC));
 	}
 
-	struct iovec iov = { .iov_base = "\0", .iov_len = 1 };
+	struct iovec iov[2] = {
+		{ .iov_base = "\0", .iov_len = 1 },
+		{ .iov_base = chroot, .iov_len = chroot == NULL ? 0 : strlen(chroot)+1 }
+	};
 	char buf[CMSG_SPACE(sizeof(fds))];  /* ancillary data buffer */
 
 	struct msghdr msg = {0};
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
+	msg.msg_iov = iov;
+	msg.msg_iovlen = chroot == NULL ? 1 : 2;
 	msg.msg_control = buf;
 	msg.msg_controllen = CMSG_LEN(sizeof(fds));
 
@@ -130,7 +138,7 @@ static void write_ns_fd(int server) {
 	cmsg->cmsg_len = CMSG_LEN(sizeof(fds));
 	memmove(CMSG_DATA(cmsg), fds, sizeof(fds));
 
-	x(sendmsg(server, &msg, 0) == iov.iov_len);
+	x(sendmsg(server, &msg, 0) == iov[0].iov_len+iov[1].iov_len);
 
 	for (int i = 0; i < num_ns; ++i) {
 		w(close(fds[i]));
@@ -215,7 +223,8 @@ static void attach_func(evutil_socket_t fd, short what, void *arg) {
 }
 
 static void listen_func(evutil_socket_t fd, short what, void *arg) {
-	struct event_base *ev_base = (struct event_base *)arg;
+	struct signal_accept *signal_accept = (struct signal_accept*)arg;
+	struct event_base *ev_base = signal_accept->ev_base;
 	bool run = true;
 	while (run) {
 		struct sockaddr_un addr;
@@ -224,7 +233,7 @@ static void listen_func(evutil_socket_t fd, short what, void *arg) {
 		if (server > 0) {
 			int on = 1;
 			setsockopt(server, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
-			write_ns_fd(server);
+			write_ns_fd(server, signal_accept->chroot);
 			struct event *ev_server = p(event_new(ev_base, server, EV_READ|EV_PERSIST, attach_func, NULL));
 			struct attach_arg *attach_arg = xmalloc(sizeof(attach_arg));
 			attach_arg->event = ev_server;
@@ -252,13 +261,18 @@ void do_init(int listenfd, int server, struct arguments arguments) {
 	if (arguments.daemon) w(setsid());
 	//if (arguments.fakeroot) setenv("FAKEROOTDONTTRYCHOWN", "1", true);
 
-	w(umount("/proc"));
+	if (arguments.chroot != NULL) {
+		w(chroot(arguments.chroot));
+		w(chdir("/"));
+	}
+	umount("/proc"); // ignore umount fail
 	w(mount("proc", "/proc", "proc", 0, NULL));
 
 	pid_t child;
-	if (w(child = fork()) > 0) {
+	if (arguments.command == NULL || w(child = fork()) > 0) {
 		tree = ts_new();
-		ts_insert(tree, child, server);
+		if (arguments.command != NULL)
+			ts_insert(tree, child, server);
 
 		struct event_config *ev_config = p(event_config_new());
 		w(event_config_require_features(ev_config, EV_FEATURE_FDS));
@@ -272,8 +286,9 @@ void do_init(int listenfd, int server, struct arguments arguments) {
 		event_add(ev_sigchld, NULL);
 
 		struct event *ev_listen = NULL;
+		struct signal_accept signal_accept = { .ev_base = ev_base, .chroot = arguments.chroot };
 		if (listenfd >= 0) {
-			ev_listen = p(event_new(ev_base, listenfd, EV_READ|EV_PERSIST, listen_func, ev_base));
+			ev_listen = p(event_new(ev_base, listenfd, EV_READ|EV_PERSIST, listen_func, &signal_accept));
 			event_add(ev_listen, NULL);
 			w(listen(listenfd, 5));
 		}

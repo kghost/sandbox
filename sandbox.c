@@ -40,7 +40,8 @@ static struct argp_option options[] =
 	{ "daemon", 'd', NULL, 0, _("run target program as a daemon"), 0 },
 	{ "keep", 'k', "file", 0, _("keep the sandbox running, so it can be attached later"), 1 },
 	{ "attach", 'a', "file", 0, _("attach to a running sandbox"), 1 },
-	{ "fakeroot", 'f', NULL, 0, _("call fakeroot instead of shell, so it will be more like root"), 2 },
+	{ "chroot", 'r', "path", 0, _("put children in chroot jail"), 2 },
+	{ "fakeroot", 'f', NULL, 0, _("call fakeroot instead of shell, so it will be more like root"), 3 },
 	{ NULL, 0, NULL, 0, NULL, 0 }
 };
 
@@ -93,6 +94,9 @@ int main (int argc, char **argv)
 			arguments.command = argv;
 			control (arguments);
 		}
+	} else {
+		// start daemon w/o running any program
+		control (arguments);
 	}
 
 	exit (0);
@@ -106,11 +110,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	switch (key)
 	{
 		case ARGP_KEY_INIT:
-			arguments->daemon = false;
-			arguments->keep = NULL;
-			arguments->attach = NULL;
-			arguments->fakeroot = false;
-			arguments->command = NULL;
+			memset(arguments, 0, sizeof(*arguments));
 			break;
 		case 'k':
 			if (arguments->attach)
@@ -130,6 +130,11 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 			break;
 		case 'd':
 			arguments->daemon = true;
+			break;
+		case 'r':
+			if (arguments->chroot)
+				return EINVAL;
+			arguments->chroot = arg;
 			break;
 		case 'f':
 			arguments->fakeroot = true;

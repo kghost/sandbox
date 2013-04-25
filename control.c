@@ -28,6 +28,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "macros.h"
 #include "namespace.h"
@@ -36,9 +39,11 @@
 
 void control (struct arguments arguments) {
 	if (arguments.daemon) {
-		close(0);
-		close(1);
-		close(2);
+		int nul = w(open("/dev/null",O_RDWR));
+		w(dup2(nul, 0));
+		w(dup2(nul, 1));
+		w(dup2(nul, 2));
+		w(close(nul));
 	}
 
 	// server: control current tty

@@ -24,6 +24,7 @@
 struct arguments {
 	bool daemon;
 	bool fakeroot;
+	char *chroot;
 	char *keep;
 	char *attach;
 	char **command;

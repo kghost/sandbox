@@ -25,6 +25,8 @@
 #include <errno.h>
 #include <event2/event.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "macros.h"
 #include "arguments.h"
@@ -41,7 +43,7 @@ static void client_func(evutil_socket_t fd, short what, void *arg) {
 	char **command = a->command;
 	bool run = true;
 	while (run) {
-		char buf[16];
+		char buf[1024];
 		struct iovec iov;
 		iov.iov_base = buf;
 		iov.iov_len = sizeof(buf);
@@ -81,6 +83,10 @@ static void client_func(evutil_socket_t fd, short what, void *arg) {
 						// notify init our pid
 						w(send(fd, "\1", 1, 0));
 						w(close(fd));
+						if (s > 1) {
+							w(chroot(buf+1));
+							w(chdir("/"));
+						}
 						w(execvp(command[0], command));
 					}
 				}
