@@ -70,7 +70,7 @@ void ts_remove(struct ts *ts, int key) {
 static __thread int search_value;
 static __thread const struct item *search_by_value;
 static void visit(const void *nodep, VISIT value, int level) {
-	if (value == leaf) {
+	if (value == preorder || value == leaf) {
 		const struct item *item = *(const struct item **)nodep;
 		if (item->value == search_value)
 			search_by_value = item;
