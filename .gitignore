@@ -2,8 +2,8 @@
 *.swp
 *.o
 /.deps/
-/Makefile
-/Makefile.in
+Makefile
+Makefile.in
 /aclocal.m4
 /autom4te.cache/
 /config.guess
@@ -16,5 +16,5 @@
 /depcomp
 /install-sh
 /missing
-/sandbox
+/src/sandbox
 /stamp-h1
